@@ -1,0 +1,16 @@
+
+# Replace BASE with your deployed URL (e.g., https://your-site.netlify.app)
+
+# Check availability
+curl -s "BASE/availability?roomId=Room-A&from=2025-11-05T08:00:00%2B00:00&to=2025-11-05T09:00:00%2B00:00"
+
+# Add a blackout (JSON body)
+curl -s -X POST "BASE/blackout_periods" -H "Content-Type: application/json" -d '{
+  "roomId": "Room-A",
+  "startsAt": "2025-11-02T00:00:00+00:00",
+  "endsAt":   "2025-11-03T00:00:00+00:00",
+  "title": "Bank Holiday"
+}'
+
+# Delete a blackout by id
+curl -s -X DELETE "BASE/blackout_periods/REPLACE_ID?roomId=Room-A"

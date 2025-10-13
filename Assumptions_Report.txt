@@ -1,0 +1,16 @@
+
+Assumptions_Report.txt
+======================
+Date: 2025-10-13T11:20:49
+
+- This spoke is a minimal service using the supplied calendar/availability logic (buffers, rounding, opening hours) in pure functions (Luxon).
+- Storage is in-memory for v1 (serverless cold start safe for demos). JSON import/export can be added; a DB spoke can replace state.calendars later.
+- Timezone is Europe/Dublin. All inputs/outputs are ISO 8601 with timezone.
+- Rooms use immutable IDs "Room-A" and "Room-B" for demo.
+- Admin UI is static (no build required) and uses React via CDN + Babel in-browser; keeps 2–4 inputs (room, date, from, to).
+- Password protection: use Netlify site password or Vercel Protection (optional). A simple gate can be added if required.
+- Deployment choices: Netlify (recommended) or Vercel. Both configs are included.
+- Acceptance tests covered:
+  • A blackout on 2025-11-02 marks day unavailable — add blackout via Admin, then GET /availability will return available:false.
+  • An event 10:00–12:00 blocks that slot; availability excludes it.
+- Known limitation: serverless in-memory state resets on cold start. For persistence, wire to DB spoke or add JSON store (S3/GCS) on write.

@@ -1,0 +1,8 @@
+{
+  "roomId": "Room-A",
+  "from": "2025-11-05T08:00:00+00:00",
+  "to": "2025-11-05T09:00:00+00:00",
+  "available": true,
+  "ooh": false,
+  "billableHours": 1
+}
