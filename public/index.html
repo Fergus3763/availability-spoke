@@ -15,7 +15,7 @@
     .muted{color:#6b7280;font-size:12px}
     .pill{background:#eef2ff;color:#3730a3;padding:2px 8px;border-radius:999px;font-size:12px}
   </style>
-  <!-- React & Luxon globals -->
+  <!-- React & Luxon from CDNs -->
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
@@ -23,10 +23,115 @@
 <body>
   <div id="app"></div>
 
-  <!-- Single module script: import core.js and render the Admin UI -->
-  <script type="module">
-    import * as mod from '/core.js?v=6';
+  <!-- Inline core (no imports) -->
+  <script>
+  (function(){
+    const { DateTime, Interval } = luxon;
+    const state = window.state = {
+      timezone: "Europe/Dublin",
+      calendars: { "Room-A": [], "Room-B": [] },
+      roomConfig: { "Room-A": { preBufferMins: 15, postBufferMins: 15 }, "Room-B": { preBufferMins: 0, postBufferMins: 0 } },
+      pricing: { earliestStart:"07:00", latestEnd:"22:00", roundingStep:15, halfDayHrs:4, dayHrs:8, oohPct:0.2 },
+      openingHours: { MO:[{start:"07:00",end:"22:00"}], TU:[{start:"07:00",end:"22:00"}], WE:[{start:"07:00",end:"22:00"}], TH:[{start:"07:00",end:"22:00"}], FR:[{start:"07:00",end:"22:00"}], SA:[{start:"08:00",end:"20:00"}], SU:[] },
+      defaults: { preBufferMins:0, postBufferMins:0, roundingStepMins:15, minLeadTimeMins:0, maxLeadTimeDays:365 }
+    };
+    const uid = () => Math.random().toString(36).slice(2,10);
+    const parseISO = iso => DateTime.fromISO(iso, { setZone: true });
+    const weekdayToken = dt => ["SU","MO","TU","WE","TH","FR","SA"][dt.weekday % 7];
+    const isOnStep = (dt, step) => ((dt.minute + dt.hour*60) % step)===0 && dt.second===0 && dt.millisecond===0;
+    const eu = iso => parseISO(iso).toFormat("HH:mm dd/MM/yyyy");
+    const getRoomDefaults = roomId => state.roomConfig[roomId] || state.defaults;
+    const applyBuffers = (ev, roomId) => {
+      const cfg = getRoomDefaults(roomId);
+      const pre = ev.preBufferMins ?? cfg.preBufferMins ?? 0;
+      const post = ev.postBufferMins ?? cfg.postBufferMins ?? 0;
+      return { start: parseISO(ev.startsAt).minus({minutes: pre}), end: parseISO(ev.endsAt).plus({minutes: post}) };
+    };
+    const intervalsOverlap = (aStart,aEnd,bStart,bEnd) => aStart < bEnd && bStart < aEnd;
+    const checkOverlap = (roomId, candidate) => {
+      const cal = state.calendars[roomId] || [];
+      const { start: cStart, end: cEnd } = applyBuffers(candidate, roomId);
+      for (const ev of cal) {
+        if (ev.status === "cancelled") continue;
+        const { start, end } = applyBuffers(ev, roomId);
+        if (intervalsOverlap(cStart, cEnd, start, end)) {
+          return { ok:false, reason:`Conflicts with ${ev.type} (${ev.title||ev.id})`, conflictingEvent: ev };
+        }
+      }
+      return { ok:true };
+    };
+    const detectOOH = (ev) => {
+      const start = parseISO(ev.startsAt), end = parseISO(ev.endsAt);
+      let cursor = start;
+      while (cursor < end){
+        const segEnd = DateTime.min(cursor.endOf("day"), end);
+        const ranges = state.openingHours[weekdayToken(cursor)] || [];
+        const openIntervals = ranges.map(r => {
+          const [sh, sm] = r.start.split(":").map(Number);
+          const [eh, em] = r.end.split(":").map(Number);
+          return Interval.fromDateTimes(
+            cursor.set({hour:sh, minute:sm, second:0, millisecond:0}),
+            cursor.set({hour:eh, minute:em, second:0, millisecond:0})
+          );
+        });
+        const seg = Interval.fromDateTimes(cursor, segEnd);
+        const covered = openIntervals.some(iv => iv.overlaps(seg) || iv.engulfs(seg));
+        if (!covered) return true;
+        cursor = segEnd;
+      }
+      return false;
+    };
+    const isAvailable = (roomId, fromISO, toISO) => {
+      const step = state.pricing.roundingStep ?? state.defaults.roundingStepMins;
+      const s = parseISO(fromISO), e = parseISO(toISO);
+      if (!isOnStep(s, step) || !isOnStep(e, step)) return { available:false, reason:`Times must align to ${step}-minute steps` };
+      const probe = { id:"_probe_", roomId, type:"BOOKING", status:"provisional", startsAt:fromISO, endsAt:toISO, createdBy:"system", createdAt: DateTime.now().toISO() };
+      const overlap = checkOverlap(roomId, probe);
+      if (!overlap.ok) return { available:false, reason: overlap.reason, conflictingEvent: overlap.conflictingEvent };
+      return { available:true };
+    };
+    const addBlackout = (roomId, startsAtISO, endsAtISO, title="Blackout") => {
+      const ev = { id:uid(), roomId, type:"BLACKOUT", status:"confirmed", startsAt:startsAtISO, endsAt:endsAtISO, title, createdBy:"admin", createdAt: DateTime.now().toISO() };
+      const overlap = checkOverlap(roomId, ev);
+      if (!overlap.ok) return { ok:false, reason: overlap.reason, conflictingEvent: overlap.conflictingEvent };
+      (state.calendars[roomId] = state.calendars[roomId] || []).push(ev);
+      return { ok:true, event: ev };
+    };
+    const addTempBlackout = (roomId, startsAtISO, amount, unit, title="Temp Block") => {
+      const dur = {};
+      if (unit === "hours") dur.hours = amount;
+      else if (unit === "days") dur.days = amount;
+      else if (unit === "weeks") dur.weeks = amount;
+      else return { ok:false, reason:"Invalid unit (hours|days|weeks)" };
+      const endsAtISO = parseISO(startsAtISO).plus(dur).toISO();
+      const ev = { id:uid(), roomId, type:"TEMP_BLACKOUT", status:"confirmed", startsAt:startsAtISO, endsAt:endsAtISO, title, createdBy:"admin", createdAt: DateTime.now().toISO() };
+      const overlap = checkOverlap(roomId, ev);
+      if (!overlap.ok) return { ok:false, reason: overlap.reason, conflictingEvent: overlap.conflictingEvent };
+      (state.calendars[roomId] = state.calendars[roomId] || []).push(ev);
+      return { ok:true, event: ev };
+    };
+    const removeEvent = (roomId, id) => {
+      const arr = state.calendars[roomId] || [];
+      const idx = arr.findIndex(e => e.id === id);
+      if (idx === -1) return { ok:false, reason:"Not found" };
+      arr.splice(idx,1);
+      return { ok:true };
+    };
+    const seedExamples = () => {
+      const s = DateTime.fromISO("2025-11-05T10:00:00", { zone: state.timezone });
+      const e = s.plus({ hours: 2 });
+      addBlackout("Room-A", s.toISO(), e.toISO(), "Existing Event");
+    };
+
+    // Expose small API for serverless functions if needed
+    window.mod = { state, eu, isAvailable, detectOOH, addBlackout, addTempBlackout, removeEvent, seedExamples };
+  })();
+  </script>
+
+  <!-- Render Admin UI -->
+  <script>
     const { DateTime } = luxon;
+    const mod = window.mod;
 
     const App = () => {
       const [roomId, setRoomId] = React.useState("Room-A");
@@ -35,104 +140,4 @@
       const [end, setEnd] = React.useState("12:00");
       const [msg, setMsg] = React.useState("");
       const [preBuf, setPreBuf] = React.useState(mod.state.roomConfig[roomId]?.preBufferMins ?? 0);
-      const [postBuf, setPostBuf] = React.useState(mod.state.roomConfig[roomId]?.postBufferMins ?? 0);
-      const [tempAmt, setTempAmt] = React.useState(2);
-      const [tempUnit, setTempUnit] = React.useState("hours");
-      const [tick, setTick] = React.useState(0);
-
-      React.useEffect(()=>{ mod.seedExamples(); }, []);
-      React.useEffect(()=>{
-        setPreBuf(mod.state.roomConfig[roomId]?.preBufferMins ?? 0);
-        setPostBuf(mod.state.roomConfig[roomId]?.postBufferMins ?? 0);
-      }, [roomId]);
-
-      const toISO = (d, hm) => {
-        const [h,m] = hm.split(":").map(Number);
-        return DateTime.fromISO(d, { zone: mod.state.timezone }).set({ hour:h, minute:m, second:0, millisecond:0 }).toISO();
-      };
-
-      const check = () => {
-        const r = mod.isAvailable(roomId, toISO(date,start), toISO(date,end));
-        setMsg(r.available ? "Available ✅" : "Unavailable ❌ — " + (r.reason || ""));
-      };
-
-      const addBlk = () => {
-        const r = mod.addBlackout(roomId, toISO(date,start), toISO(date,end), "Admin Blackout");
-        setMsg(r.ok ? "Blackout added." : "Error: " + r.reason);
-        setTick(x=>x+1);
-      };
-
-      const addTemp = () => {
-        const r = mod.addTempBlackout(roomId, toISO(date,start), Number(tempAmt||0), tempUnit, "Temp Block");
-        setMsg(r.ok ? "Temp block added." : "Error: " + r.reason);
-        setTick(x=>x+1);
-      };
-
-      const saveBuffers = () => {
-        (mod.state.roomConfig[roomId] = mod.state.roomConfig[roomId] || {});
-        mod.state.roomConfig[roomId].preBufferMins  = Number(preBuf||0);
-        mod.state.roomConfig[roomId].postBufferMins = Number(postBuf||0);
-        setMsg("Buffers saved for " + roomId);
-      };
-
-      const events = (mod.state.calendars[roomId]||[]).slice().sort((a,b)=>a.startsAt.localeCompare(b.startsAt));
-
-      return React.createElement('div', {}, [
-        React.createElement('div', { className:'card', key:'controls' }, [
-          React.createElement('h2', {}, ['Availability & Blackouts ', React.createElement('span',{className:'pill'},'Admin')]),
-          React.createElement('div',{className:'row'},[
-            'Room', React.createElement('select',{value:roomId,onChange:e=>setRoomId(e.target.value)},[
-              React.createElement('option',{key:'A'},'Room-A'),
-              React.createElement('option',{key:'B'},'Room-B')
-            ]),
-            'Date', React.createElement('input',{type:'date',value:date,onChange:e=>setDate(e.target.value)}),
-            'From', React.createElement('input',{type:'time',value:start,onChange:e=>setStart(e.target.value),step:900}),
-            'To', React.createElement('input',{type:'time',value:end,onChange:e=>setEnd(e.target.value),step:900}),
-            React.createElement('button',{onClick:check},'Check'),
-            React.createElement('button',{onClick:addBlk},'Add Blackout')
-          ]),
-          React.createElement('div',{className:'row'},[
-            React.createElement('strong',{},'Temp block:'),'Duration',
-            React.createElement('input',{type:'number',min:1,style:{width:80},value:tempAmt,onChange:e=>setTempAmt(e.target.value)}),
-            React.createElement('select',{value:tempUnit,onChange:e=>setTempUnit(e.target.value)},[
-              React.createElement('option',{value:'hours'},'hours'),
-              React.createElement('option',{value:'days'},'days'),
-              React.createElement('option',{value:'weeks'},'weeks')
-            ]),
-            React.createElement('button',{onClick:addTemp},'Add Temp Block')
-          ]),
-          React.createElement('div',{className:'row'},[
-            React.createElement('strong',{},'Default buffers for room:'),
-            'Pre (mins)', React.createElement('input',{type:'number',min:0,style:{width:80},value:preBuf,onChange:e=>setPreBuf(e.target.value)}),
-            'Post (mins)', React.createElement('input',{type:'number',min:0,style:{width:80},value:postBuf,onChange:e=>setPostBuf(e.target.value)}),
-            React.createElement('button',{onClick:saveBuffers},'Save Buffers')
-          ]),
-          React.createElement('div',{className:'muted'},'“+01:00” is timezone (Irish Summer Time). Buffers are configurable above.'),
-          React.createElement('div',{style:{marginTop:8}}, msg)
-        ]),
-        React.createElement('div', { className:'card', key:'events' }, [
-          React.createElement('h3', {}, `Events for ${roomId}`),
-          React.createElement('table',{}, [
-            React.createElement('thead',{}, React.createElement('tr',{},[
-              React.createElement('th',{},'Type'),
-              React.createElement('th',{},'Title'),
-              React.createElement('th',{},'Start (EU)'),
-              React.createElement('th',{},'End (EU)'),
-              React.createElement('th',{},'')
-            ])),
-            React.createElement('tbody',{}, (events.length? events.map(ev => React.createElement('tr',{key:ev.id},[
-              React.createElement('td',{}, ev.type),
-              React.createElement('td',{}, ev.title||''),
-              React.createElement('td',{}, mod.eu(ev.startsAt)),
-              React.createElement('td',{}, mod.eu(ev.endsAt)),
-              React.createElement('td',{}, React.createElement('button',{onClick:()=>{ mod.removeEvent(roomId, ev.id); setTick(x=>x+1); }},'Delete'))
-            ])) : React.createElement('tr',{}, React.createElement('td',{colSpan:5, className:'muted'},'No events yet.'))))
-          ])
-        ])
-      ]);
-    };
-
-    ReactDOM.createRoot(document.getElementById('app')).render(React.createElement(App));
-  </script>
-</body>
-</html>
+      const [postBuf, setPostBuf] = R
