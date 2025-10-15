@@ -1,46 +1,32 @@
-<!-- redeploy -->
 <!doctype html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Availability/Calendar Admin</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/modern-normalize/modern-normalize.min.css">
-    <style>
-      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji","Segoe UI Emoji"; padding: 24px; }
-      .card { border:1px solid #e5e7eb; border-radius:16px; padding:16px; margin-bottom:16px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
-      .row { display:flex; gap:8px; align-items:center; margin: 8px 0; flex-wrap: wrap; }
-      input, select, button { padding: 8px 10px; border-radius: 10px; border:1px solid #d1d5db; }
-      button { cursor:pointer; }
-      table { width:100%; border-collapse: collapse; }
-      th, td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
-      .muted { color:#6b7280; font-size: 12px; }
-      .pill { background:#eef2ff; color:#3730a3; padding:2px 8px; border-radius:999px; font-size:12px; }
-      .ok { color: #065f46; }
-      .bad { color: #991b1b; }
-    </style>
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
-    <script type="module">
-      import coreUrl from './core.js?url';
-    </script>
-  </head>
-</html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Admin — Availability & Blackouts</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/modern-normalize/modern-normalize.min.css">
+  <style>
+    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial;padding:24px}
+    .card{border:1px solid #e5e7eb;border-radius:16px;padding:16px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+    .row{display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap}
+    input,select,button{padding:8px 10px;border-radius:10px;border:1px solid #d1d5db}
+    table{width:100%;border-collapse:collapse}
+    th,td{text-align:left;padding:8px;border-bottom:1px solid #eee}
+    .muted{color:#6b7280;font-size:12px}
+    .pill{background:#eef2ff;color:#3730a3;padding:2px 8px;border-radius:999px;font-size:12px}
+  </style>
+  <!-- React & Luxon globals -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+</head>
 <body>
   <div id="app"></div>
 
-  <!-- 1) Load core.js as a module and attach it to window.mod -->
+  <!-- Single module script: import core.js and render the Admin UI -->
   <script type="module">
-    import * as mod from '/core.js?v=4';
-    window.mod = mod; // make it available to the next script
-  </script>
-
-  <!-- 2) Use window.mod from a normal script -->
-  <script>
+    import * as mod from '/core.js?v=6';
     const { DateTime } = luxon;
-    const mod = window.mod;
 
     const App = () => {
       const [roomId, setRoomId] = React.useState("Room-A");
@@ -66,8 +52,7 @@
       };
 
       const check = () => {
-        const fromISO = toISO(date,start), toISOv = toISO(date,end);
-        const r = mod.isAvailable(roomId, fromISO, toISOv);
+        const r = mod.isAvailable(roomId, toISO(date,start), toISO(date,end));
         setMsg(r.available ? "Available ✅" : "Unavailable ❌ — " + (r.reason || ""));
       };
 
@@ -150,3 +135,4 @@
     ReactDOM.createRoot(document.getElementById('app')).render(React.createElement(App));
   </script>
 </body>
+</html>
