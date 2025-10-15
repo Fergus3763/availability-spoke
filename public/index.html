@@ -140,4 +140,104 @@
       const [end, setEnd] = React.useState("12:00");
       const [msg, setMsg] = React.useState("");
       const [preBuf, setPreBuf] = React.useState(mod.state.roomConfig[roomId]?.preBufferMins ?? 0);
-      const [postBuf, setPostBuf] = R
+      const [postBuf, setPostBuf] = React.useState(mod.state.roomConfig[roomId]?.postBufferMins ?? 0);
+      const [tempAmt, setTempAmt] = React.useState(2);
+      const [tempUnit, setTempUnit] = React.useState("hours");
+      const [tick, setTick] = React.useState(0);
+
+      React.useEffect(()=>{ mod.seedExamples(); }, []);
+      React.useEffect(()=>{
+        setPreBuf(mod.state.roomConfig[roomId]?.preBufferMins ?? 0);
+        setPostBuf(mod.state.roomConfig[roomId]?.postBufferMins ?? 0);
+      }, [roomId]);
+
+      const toISO = (d, hm) => {
+        const [h,m] = hm.split(":").map(Number);
+        return DateTime.fromISO(d, { zone: mod.state.timezone }).set({ hour:h, minute:m, second:0, millisecond:0 }).toISO();
+      };
+
+      const check = () => {
+        const r = mod.isAvailable(roomId, toISO(date,start), toISO(date,end));
+        setMsg(r.available ? "Available ✅" : "Unavailable ❌ — " + (r.reason || ""));
+      };
+
+      const addBlk = () => {
+        const r = mod.addBlackout(roomId, toISO(date,start), toISO(date,end), "Admin Blackout");
+        setMsg(r.ok ? "Blackout added." : "Error: " + r.reason);
+        setTick(x=>x+1);
+      };
+
+      const addTemp = () => {
+        const r = mod.addTempBlackout(roomId, toISO(date,start), Number(tempAmt||0), tempUnit, "Temp Block");
+        setMsg(r.ok ? "Temp block added." : "Error: " + r.reason);
+        setTick(x=>x+1);
+      };
+
+      const saveBuffers = () => {
+        (mod.state.roomConfig[roomId] = mod.state.roomConfig[roomId] || {});
+        mod.state.roomConfig[roomId].preBufferMins  = Number(preBuf||0);
+        mod.state.roomConfig[roomId].postBufferMins = Number(postBuf||0);
+        setMsg("Buffers saved for " + roomId);
+      };
+
+      const events = (mod.state.calendars[roomId]||[]).slice().sort((a,b)=>a.startsAt.localeCompare(b.startsAt));
+
+      return React.createElement('div', {}, [
+        React.createElement('div', { className:'card', key:'controls' }, [
+          React.createElement('h2', {}, ['Availability & Blackouts ', React.createElement('span',{className:'pill'},'Admin')]),
+          React.createElement('div',{className:'row'},[
+            'Room', React.createElement('select',{value:roomId,onChange:e=>setRoomId(e.target.value)},[
+              React.createElement('option',{key:'A'},'Room-A'),
+              React.createElement('option',{key:'B'},'Room-B')
+            ]),
+            'Date', React.createElement('input',{type:'date',value:date,onChange:e=>setDate(e.target.value)}),
+            'From', React.createElement('input',{type:'time',value:start,onChange:e=>setStart(e.target.value),step:900}),
+            'To', React.createElement('input',{type:'time',value:end,onChange:e=>setEnd(e.target.value),step:900}),
+            React.createElement('button',{onClick:check},'Check'),
+            React.createElement('button',{onClick:addBlk},'Add Blackout')
+          ]),
+          React.createElement('div',{className:'row'},[
+            React.createElement('strong',{},'Temp block:'),'Duration',
+            React.createElement('input',{type:'number',min:1,style:{width:80},value:tempAmt,onChange:e=>setTempAmt(e.target.value)}),
+            React.createElement('select',{value:tempUnit,onChange:e=>setTempUnit(e.target.value)},[
+              React.createElement('option',{value:'hours'},'hours'),
+              React.createElement('option',{value:'days'},'days'),
+              React.createElement('option',{value:'weeks'},'weeks')
+            ]),
+            React.createElement('button',{onClick:addTemp},'Add Temp Block')
+          ]),
+          React.createElement('div',{className:'row'},[
+            React.createElement('strong',{},'Default buffers for room:'),
+            'Pre (mins)', React.createElement('input',{type:'number',min:0,style:{width:80},value:preBuf,onChange:e=>setPreBuf(e.target.value)}),
+            'Post (mins)', React.createElement('input',{type:'number',min:0,style:{width:80},value:postBuf,onChange:e=>setPostBuf(e.target.value)}),
+            React.createElement('button',{onClick:saveBuffers},'Save Buffers')
+          ]),
+          React.createElement('div',{className:'muted'},'“+01:00” is timezone (Irish Summer Time). Buffers are configurable above.'),
+          React.createElement('div',{style:{marginTop:8}}, msg)
+        ]),
+        React.createElement('div', { className:'card', key:'events' }, [
+          React.createElement('h3', {}, `Events for ${roomId}`),
+          React.createElement('table',{}, [
+            React.createElement('thead',{}, React.createElement('tr',{},[
+              React.createElement('th',{},'Type'),
+              React.createElement('th',{},'Title'),
+              React.createElement('th',{},'Start (EU)'),
+              React.createElement('th',{},'End (EU)'),
+              React.createElement('th',{},'')
+            ])),
+            React.createElement('tbody',{}, (events.length? events.map(ev => React.createElement('tr',{key:ev.id},[
+              React.createElement('td',{}, ev.type),
+              React.createElement('td',{}, ev.title||''),
+              React.createElement('td',{}, window.mod.eu(ev.startsAt)),
+              React.createElement('td',{}, window.mod.eu(ev.endsAt)),
+              React.createElement('td',{}, React.createElement('button',{onClick:()=>{ window.mod.removeEvent(roomId, ev.id); setTick(x=>x+1); }},'Delete'))
+            ])) : React.createElement('tr',{}, React.createElement('td',{colSpan:5, className:'muted'},'No events yet.'))))
+          ])
+        ])
+      ]);
+    };
+
+    ReactDOM.createRoot(document.getElementById('app')).render(React.createElement(App));
+  </script>
+</body>
+</html>
