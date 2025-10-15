@@ -122,8 +122,7 @@
       const e = s.plus({ hours: 2 });
       addBlackout("Room-A", s.toISO(), e.toISO(), "Existing Event");
     };
-
-    // Expose small API for serverless functions if needed
+    // expose for UI
     window.mod = { state, eu, isAvailable, detectOOH, addBlackout, addTempBlackout, removeEvent, seedExamples };
   })();
   </script>
@@ -143,6 +142,7 @@
       const [postBuf, setPostBuf] = React.useState(mod.state.roomConfig[roomId]?.postBufferMins ?? 0);
       const [tempAmt, setTempAmt] = React.useState(2);
       const [tempUnit, setTempUnit] = React.useState("hours");
+      const [rounding, setRounding] = React.useState(mod.state.pricing.roundingStep || 15);
       const [tick, setTick] = React.useState(0);
 
       React.useEffect(()=>{ mod.seedExamples(); }, []);
@@ -180,6 +180,11 @@
         setMsg("Buffers saved for " + roomId);
       };
 
+      const saveRounding = () => {
+        mod.state.pricing.roundingStep = Number(rounding||15);
+        setMsg("Rounding step set to " + mod.state.pricing.roundingStep + " minutes");
+      };
+
       const events = (mod.state.calendars[roomId]||[]).slice().sort((a,b)=>a.startsAt.localeCompare(b.startsAt));
 
       return React.createElement('div', {}, [
@@ -191,8 +196,8 @@
               React.createElement('option',{key:'B'},'Room-B')
             ]),
             'Date', React.createElement('input',{type:'date',value:date,onChange:e=>setDate(e.target.value)}),
-            'From', React.createElement('input',{type:'time',value:start,onChange:e=>setStart(e.target.value),step:900}),
-            'To', React.createElement('input',{type:'time',value:end,onChange:e=>setEnd(e.target.value),step:900}),
+            'From', React.createElement('input',{type:'time',value:start,onChange:e=>setStart(e.target.value), step: rounding*60}),
+            'To', React.createElement('input',{type:'time',value:end,onChange:e=>setEnd(e.target.value), step: rounding*60}),
             React.createElement('button',{onClick:check},'Check Availability'),
             React.createElement('button',{onClick:addBlk},'Add Blackout')
           ]),
@@ -212,7 +217,18 @@
             'Post (mins)', React.createElement('input',{type:'number',min:0,style:{width:80},value:postBuf,onChange:e=>setPostBuf(e.target.value)}),
             React.createElement('button',{onClick:saveBuffers},'Save Buffers')
           ]),
-          React.createElement('div',{className:'muted'},'“+01:00” is timezone (Irish Summer Time). Buffers are configurable above.'),
+          React.createElement('div',{className:'row'},[
+            React.createElement('strong',{},'Rounding step (mins):'),
+            React.createElement('select',{value:rounding, onChange:e=>setRounding(Number(e.target.value))},[
+              React.createElement('option',{value:5},'5'),
+              React.createElement('option',{value:10},'10'),
+              React.createElement('option',{value:15},'15'),
+              React.createElement('option',{value:30},'30'),
+              React.createElement('option',{value:60},'60')
+            ]),
+            React.createElement('button',{onClick:saveRounding},'Save Rounding')
+          ]),
+          React.createElement('div',{className:'muted'},'“+01:00” is timezone (Irish Summer Time). Buffers and rounding are configurable above.'),
           React.createElement('div',{style:{marginTop:8}}, msg)
         ]),
         React.createElement('div', { className:'card', key:'events' }, [
