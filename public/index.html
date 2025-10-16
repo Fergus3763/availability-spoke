@@ -123,7 +123,71 @@
       addBlackout("Room-A", s.toISO(), e.toISO(), "Existing Event");
     };
     // expose for UI
-    window.mod = { state, eu, isAvailable, detectOOH, addBlackout, addTempBlackout, removeEvent, seedExamples };
+        // -------- SUGGESTIONS HELPERS (add-on) --------
+    // Align a DateTime to the next valid grid tick (e.g., 30 mins)
+    const alignToStep = (dt, stepMins) => {
+      const minutes = dt.minute + dt.hour*60;
+      const next = Math.ceil(minutes / stepMins) * stepMins;
+      return dt.set({ hour: Math.floor(next/60), minute: next%60, second: 0, millisecond: 0 });
+    };
+
+    // Find nearest alternatives around a requested window
+    // opts: { stepMins: 30, radiusMins: 240, limit: 6, allowedStartMinutes: [0,30] }
+    const suggestAlternatives = (roomIds, fromISO, toISO, opts = {}) => {
+      const stepMins = opts.stepMins ?? (state.pricing.roundingStep || 15);
+      const radiusMins = opts.radiusMins ?? 240; // +/- 4 hours
+      const limit = opts.limit ?? 6;
+      const allowedStartMinutes = opts.allowedStartMinutes ?? [0, 30]; // prefer :00 / :30
+
+      const base = DateTime.fromISO(fromISO, { setZone: true });
+      const endReq = DateTime.fromISO(toISO, { setZone: true });
+      const durMins = endReq.diff(base, "minutes").minutes;
+
+      const startSearch = base.minus({ minutes: radiusMins });
+      const endSearch = base.plus({ minutes: radiusMins });
+
+      const results = [];
+
+      const trySlot = (roomId, startDT) => {
+        if (!allowedStartMinutes.includes(startDT.minute)) return; // enforce :00 / :30 starts
+        const endDT = startDT.plus({ minutes: durMins });
+        const check = isAvailable(roomId, startDT.toISO(), endDT.toISO());
+        if (check.available) {
+          results.push({
+            roomId,
+            start: startDT.toISO(),
+            end: endDT.toISO(),
+            startEU: eu(startDT.toISO()),
+            endEU: eu(endDT.toISO())
+          });
+        }
+      };
+
+      // Sweep forward then backward from the aligned request
+      const alignedStart = alignToStep(base, stepMins);
+      const step = { minutes: stepMins };
+
+      for (let dt = alignedStart; dt <= endSearch && results.length < limit; dt = dt.plus(step)) {
+        for (const roomId of roomIds) trySlot(roomId, dt);
+      }
+      for (let dt = alignedStart.minus(step); dt >= startSearch && results.length < limit; dt = dt.minus(step)) {
+        for (const roomId of roomIds) trySlot(roomId, dt);
+      }
+
+      // Sort by nearest to requested start, then by roomId
+      results.sort((a,b)=>{
+        const da = Math.abs(DateTime.fromISO(a.start).diff(base, "minutes").minutes);
+        const db = Math.abs(DateTime.fromISO(b.start).diff(base, "minutes").minutes);
+        if (da !== db) return da - db;
+        return a.roomId.localeCompare(b.roomId);
+      });
+
+      return results.slice(0, limit);
+    };
+    // -------- END SUGGESTIONS HELPERS --------
+
+   window.mod = { state, eu, isAvailable, detectOOH, addBlackout, addTempBlackout, removeEvent, seedExamples, suggestAlternatives };
+
   })();
   </script>
 
