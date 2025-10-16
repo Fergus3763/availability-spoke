@@ -221,9 +221,61 @@
       };
 
       const check = () => {
-        const r = mod.isAvailable(roomId, toISO(date,start), toISO(date,end));
-        setMsg(r.available ? "Available ✅" : "Unavailable ❌ — " + (r.reason || ""));
-      };
+  const fromISO = toISO(date,start), toISOv = toISO(date,end);
+  const r = mod.isAvailable(roomId, fromISO, toISOv);
+  if (r.available) {
+    setMsg("Available ✅");
+    return;
+  }
+  // Unavailable — show suggestions (prefer :00/:30, 30-min grid, +/- 4h, top 3)
+  const roomIds = Object.keys(mod.state.calendars || {});
+  const suggestions = mod.suggestAlternatives(roomIds, fromISO, toISOv, {
+    stepMins: 30,
+    radiusMins: 240,
+    limit: 3,
+    allowedStartMinutes: [0, 30]
+  });
+
+  if (!suggestions.length) {
+    setMsg("Unavailable ❌ — " + (r.reason || "") + " — No nearby alternatives found.");
+    return;
+  }
+
+  // Build a tiny HTML list of buttons the admin can click to fill the form
+  const html = [
+    "Unavailable ❌ — " + (r.reason || ""),
+    "<div style='margin-top:8px'><strong>Nearest alternatives:</strong></div>",
+    "<ul style='margin-top:6px'>",
+    ...suggestions.map(s => {
+      return `<li style="margin:4px 0">
+        <button data-room="${s.roomId}" data-start="${s.start}" data-end="${s.end}" class="alt-btn">
+          ${s.roomId}: ${s.startEU} → ${s.endEU}
+        </button>
+      </li>`;
+    }),
+    "</ul>"
+  ].join("");
+
+  setMsg(html);
+
+  // After React updates the DOM, wire the buttons
+  setTimeout(() => {
+    document.querySelectorAll(".alt-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const room = btn.getAttribute("data-room");
+        const startISO = btn.getAttribute("data-start");
+        const endISO = btn.getAttribute("data-end");
+        setRoomId(room);
+        const sdt = luxon.DateTime.fromISO(startISO, { setZone: true });
+        const edt = luxon.DateTime.fromISO(endISO, { setZone: true });
+        setDate(sdt.toISODate());
+        setStart(sdt.toFormat("HH:mm"));
+        setEnd(edt.toFormat("HH:mm"));
+      });
+    });
+  }, 0);
+};
+
 
       const addBlk = () => {
         const r = mod.addBlackout(roomId, toISO(date,start), toISO(date,end), "Admin Blackout");
@@ -293,7 +345,7 @@
             React.createElement('button',{onClick:saveRounding},'Save Rounding')
           ]),
           React.createElement('div',{className:'muted'},'“+01:00” is timezone (Irish Summer Time). Buffers and rounding are configurable above.'),
-          React.createElement('div',{style:{marginTop:8}}, msg)
+          React.createElement('div',{style:{marginTop:8}, dangerouslySetInnerHTML:{__html: msg}})
         ]),
         React.createElement('div', { className:'card', key:'events' }, [
           React.createElement('h3', {}, `Events for ${roomId}`),
