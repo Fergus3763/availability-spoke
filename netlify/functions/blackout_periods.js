@@ -1,35 +1,73 @@
-// Supports fixed and temp blackouts; EU fields in response
+// /netlify/functions/blackout_periods.js (CommonJS)
 const { DateTime } = require('luxon');
 
-// Server-safe EU formatter (no browser globals)
+// In-memory store (resets when function cold-starts/redeploys)
+let store = [];
+
+// EU formatter
 function eu(iso, zone = 'Europe/Dublin') {
-  // Accept both DateTime and string
   const dt = typeof iso === 'string'
     ? DateTime.fromISO(iso, { zone })
     : iso.setZone(zone);
   return dt.toFormat('dd/MM/yyyy HH:mm');
 }
-export async function handler(event) {
-  if (event.httpMethod === 'POST') {
-    const body = JSON.parse(event.body || '{}');
-    const { roomId = 'Room-A', startsAt, endsAt, title, tempAmount, tempUnit } = body;
-    if (tempAmount && tempUnit) {
-      const res = addTempBlackout(roomId, startsAt || new Date().toISOString(), Number(tempAmount), tempUnit, title || 'Temp Block');
-      if (!res.ok) return { statusCode: 409, body: JSON.stringify(res) };
-      const ev = res.event;
-      return { statusCode: 201, body: JSON.stringify({ ...res, event: { ...ev, startsAtEU: eu(ev.startsAt), endsAtEU: eu(ev.endsAt) } }) };
-    }
-    if (!startsAt || !endsAt) return { statusCode: 400, body: JSON.stringify({ error: 'startsAt and endsAt required (or provide tempAmount & tempUnit)' }) };
-    const out = addBlackout(roomId, startsAt, endsAt, title || 'Blackout');
-    if (!out.ok) return { statusCode: 409, body: JSON.stringify(out) };
-    const ev = out.event;
-    return { statusCode: 201, body: JSON.stringify({ ...out, event: { ...ev, startsAtEU: eu(ev.startsAt), endsAtEU: eu(ev.endsAt) } }) };
-  }
-  if (event.httpMethod === 'DELETE') {
-    const id = event.path.split('/').pop();
-    const roomId = (event.queryStringParameters && event.queryStringParameters.roomId) || 'Room-A';
-    const out = removeEvent(roomId, id);
-    return { statusCode: out.ok ? 204 : 404, body: out.ok ? '' : JSON.stringify(out) };
-  }
-  return { statusCode: 405, body: 'Method Not Allowed' };
+
+// JSON helper
+function json(status, body) {
+  return {
+    statusCode: status,
+    headers: { 'content-type': 'application/json' },
+    body: body == null ? '' : JSON.stringify(body),
+  };
 }
+
+exports.handler = async (event) => {
+  try {
+    const method = event.httpMethod;
+
+    if (method === 'POST') {
+      const body = JSON.parse(event.body || '{}');
+
+      const roomId   = body.roomId || 'Room-A';
+      const title    = body.title || 'Blackout';
+
+      // fixed blackout
+      let startsAt = body.startsAt || DateTime.now().toISO();
+      let endsAt   = body.endsAt   || DateTime.now().plus({ hours: 1 }).toISO();
+
+      // temp blackout (e.g. { tempAmount: 6, tempUnit: "hours", startsAt? } )
+      if (!body.startsAt && !body.endsAt && body.tempAmount && body.tempUnit) {
+        const base = body.startsAt
+          ? DateTime.fromISO(body.startsAt)
+          : DateTime.now();
+        startsAt = base.toISO();
+        endsAt   = base.plus({ [body.tempUnit]: Number(body.tempAmount) }).toISO();
+      }
+
+      const id = 'blk_' + Math.random().toString(36).slice(2, 10);
+
+      const rec = {
+        id, roomId, title,
+        startsAt, endsAt,
+        startsAtEU: eu(startsAt),
+        endsAtEU: eu(endsAt),
+      };
+
+      store.push(rec);
+      return json(201, rec);
+    }
+
+    if (method === 'DELETE') {
+      // Expect last segment to be the id: /blackout_periods/:id
+      const id = (event.path || '').split('/').pop();
+      const before = store.length;
+      store = store.filter(x => x.id !== id);
+      const removed = before - store.length;
+      return json(200, { ok: true, removed, id });
+    }
+
+    return json(405, { error: 'Method not allowed' });
+  } catch (err) {
+    return json(500, { error: 'Server error', detail: String(err && err.message || err) });
+  }
+};
