@@ -1,31 +1,15 @@
-
 [build]
-[build]
-  publish = "public"
-  functions = "netlify/functions"
-
-[functions]
-  node_bundler = "esbuild"
+publish = "public"
+functions = "netlify/functions"
+node_version = "20"
 
 [[redirects]]
-  from = "/availability"
-  to = "/.netlify/functions/availability"
-  status = 200
+from = "/availability"
+to = "/.netlify/functions/availability"
+status = 200
 
 [[redirects]]
-  from = "/blackout_periods"
-  to = "/.netlify/functions/blackout_periods"
-  status = 200
+from = "/blackout_periods"
+to = "/.netlify/functions/blackout_periods"
+status = 200
 
-  publish = "public"
-  functions = "netlify/functions"
-
-[[redirects]]
-  from = "/availability"
-  to = "/.netlify/functions/availability"
-  status = 200
-
-[[redirects]]
-  from = "/blackout_periods"
-  to = "/.netlify/functions/blackout_periods"
-  status = 200
