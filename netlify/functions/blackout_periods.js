@@ -1,6 +1,14 @@
 // Supports fixed and temp blackouts; EU fields in response
-import { addBlackout, addTempBlackout, removeEvent, eu } from '../../public/core.js';
+const { DateTime } = require('luxon');
 
+// Server-safe EU formatter (no browser globals)
+function eu(iso, zone = 'Europe/Dublin') {
+  // Accept both DateTime and string
+  const dt = typeof iso === 'string'
+    ? DateTime.fromISO(iso, { zone })
+    : iso.setZone(zone);
+  return dt.toFormat('dd/MM/yyyy HH:mm');
+}
 export async function handler(event) {
   if (event.httpMethod === 'POST') {
     const body = JSON.parse(event.body || '{}');
