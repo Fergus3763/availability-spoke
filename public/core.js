@@ -1,6 +1,8 @@
 
-// core.js — pure functions & in-memory calendars
-const { DateTime, Interval } = luxon;
+// Works in browser (window.luxon) AND in Node (require)
+const LUX = (typeof luxon !== 'undefined') ? luxon : require('luxon');
+const { DateTime, Duration, Interval } = LUX;
+
 export const state = { timezone: "Europe/Dublin", calendars: { "Room-A": [], "Room-B": [] }, pricing: { earliestStart: "07:00", latestEnd: "22:00", roundingStep: 15, halfDayHrs: 4, dayHrs: 8, oohPct: 0.2 }, openingHours: { MO:[{start:"07:00",end:"22:00"}], TU:[{start:"07:00",end:"22:00"}], WE:[{start:"07:00",end:"22:00"}], TH:[{start:"07:00",end:"22:00"}], FR:[{start:"07:00",end:"22:00"}], SA:[{start:"08:00",end:"20:00"}], SU:[] }, defaults:{ preBufferMins:0, postBufferMins:0, roundingStepMins:15, minLeadTimeMins:0, maxLeadTimeDays:365 } };
 export function uid(){ return Math.random().toString(36).slice(2,10); }
 function parseISO(iso){ return DateTime.fromISO(iso,{setZone:true}); }
