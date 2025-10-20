@@ -1,6 +1,16 @@
+const { DateTime } = require('luxon');
+
+// Server-safe EU formatter (no browser globals)
+function eu(iso, zone = 'Europe/Dublin') {
+  // Accept both DateTime and string
+  const dt = typeof iso === 'string'
+    ? DateTime.fromISO(iso, { zone })
+    : iso.setZone(zone);
+  return dt.toFormat('dd/MM/yyyy HH:mm');
+}
 // EU fields included
 import { DateTime } from 'luxon';
-import { isAvailable, detectOOH, eu } from '../../public/core.js';
+
 
 export async function handler(event) {
   if (event.httpMethod !== 'GET') return { statusCode: 405, body: 'Method Not Allowed' };
