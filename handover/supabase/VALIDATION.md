@@ -1,7 +1,5 @@
 # VALIDATION — Supabase Load Checks
 
-Run the SQL blocks below in Supabase **SQL Editor** and paste the counts.
-
 ## Row counts
 ```sql
 select 'vat' tbl, count(*) from vat
