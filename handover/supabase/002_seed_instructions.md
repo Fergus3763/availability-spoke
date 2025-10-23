@@ -1,57 +1,77 @@
-# 002 — Seed Instructions (Supabase)
-
-This guide seeds Supabase from `/data/db/` and validates the load.
+# 002 — Supabase UI Seed Instructions
 
 ## Import order (must follow)
-1) `vat` → from `/data/db/VAT.csv`  
-2) `catalog` → from `/data/db/Catalog.csv`  
-3) `rooms` → from `/data/db/Rooms.csv`  
-4) `durations` → from `/data/db/Durations.csv`  
-5) `room_catalog_map` → from `/data/db/RoomCatalogMap.csv`
+1. **vat** ← `/data/db/VAT.csv`
+2. **catalog** ← `/data/db/Catalog.csv`
+3. **rooms** ← `/data/db/Rooms.csv`
+4. **durations** ← `/data/db/Durations.csv`
+5. **room_catalog_map** ← `/data/db/RoomCatalogMap.csv`
 
-## How to import (Supabase UI)
-1. Open **Supabase → Table editor**.
-2. For each table above, click the table → **Import data** → select the CSV.
-3. Ensure **UTF-8** and **comma delimiter**.
-4. Confirm column mapping:
-   - CSV → Table column (snake_case):
-     - `Catalog.csv`
-       - `vatCategory` → `vat_category`
-       - `ratePerHour` → `rate_per_hour`
-       - `rateHalfDay` → `rate_half_day`
-       - `rateDay` → `rate_day`
-       - `ratePerPerson` → `rate_per_person`
-       - `ratePerBooking` → `rate_per_booking`
-       - `includedDefault` → `included_default`
-       - `includedCondition` → `included_condition`
-     - `Rooms.csv`
-       - `venueId` → `venue_id`
-       - `sizeSqm` → `size_sqm`
-       - `heightM` → `height_m`
-       - `featuresJSON` → `features_json` (as JSON)
-       - `imagesJSON` → `images_json` (as JSON)
-       - `layoutsJSON` → `layouts_json` (as JSON)
-       - `baseRateHour` → `base_rate_hour`
-       - `baseRateHalfDay` → `base_rate_half_day`
-       - `baseRateDay` → `base_rate_day`
-     - `RoomCatalogMap.csv`
-       - `roomId` → `room_id`
-       - `catalogItemId` → `catalog_item_id`
-       - `basisOverride` → `basis_override`
-       - `rateOverridesJSON` → `rate_overrides_json` (as JSON)
-       - `minQty`/`maxQty`/`defaultQty` → `min_qty`/`max_qty`/`default_qty`
-       - `autoSuggest` → `auto_suggest`
-     - `VAT.csv`
-       - `ratePercent` → `rate_percent`
-       - `appliesToJSON` → `applies_to_json` (as JSON)
-     - `Durations.csv`
-       - `label` → `label`
-       - `hours` → `hours`
+## One-time setup
+1) Supabase → **SQL Editor** → run `001_schema.sql`.  
+2) Supabase → **Table Editor** → open each table and **Import data**.  
+   - Format: **UTF-8**, **comma-delimited**.  
+   - If a cell contains JSON, it must be quoted as a whole CSV field (e.g. `"{""Per Booking"":90}"`).
 
-> JSON columns: if the CSV field contains JSON (e.g., `["F&B","AV"]` or `{"Per Booking":90}`), the entire field must be wrapped in quotes and inner quotes doubled. Example:  
-> `"{""Per Booking"":90}"` for CSV; the UI will parse it as JSON.
+## Column mapping (camelCase → snake_case)
 
-## Optional — CLI import
-You can also run COPY SQL in the SQL editor (ensure the CSVs are accessible to the DB or use the UI upload).
+### Catalog.csv → catalog
+- `id` → `id`
+- `name` → `name`
+- `heading` → `heading` *(enum; values must be: F&B, AV, Labour, 3rd Party, Add-On)*
+- `vatCategory` → `vat_category` *(FK to vat.name)*
+- `ratePerHour` → `rate_per_hour`
+- `rateHalfDay` → `rate_half_day`
+- `rateDay` → `rate_day`
+- `ratePerPerson` → `rate_per_person`
+- `ratePerBooking` → `rate_per_booking`
+- `includedDefault` → `included_default`
+- `includedCondition` → `included_condition`
+- `notes` → `notes`
 
-## After import — run validation queries in VALIDATION.md and paste the result counts.
+### Rooms.csv → rooms
+- `id` → `id`
+- `venueId` → `venue_id`
+- `name` → `name`
+- `code` → `code` *(unique)*
+- `description` → `description`
+- `sizeSqm` → `size_sqm`
+- `heightM` → `height_m`
+- `accessible` → `accessible`
+- `featuresJSON` → `features_json` *(JSON)*
+- `imagesJSON` → `images_json` *(JSON)*
+- `layoutsJSON` → `layouts_json` *(JSON)*
+- `baseRateHour` → `base_rate_hour`
+- `baseRateHalfDay` → `base_rate_half_day`
+- `baseRateDay` → `base_rate_day`
+
+### Durations.csv → durations
+- `code` → `code` *(PK)*
+- `label` → `label`
+- `hours` → `hours`
+
+### RoomCatalogMap.csv → room_catalog_map
+- `id` → `id`
+- `roomId` → `room_id` *(FK)*
+- `catalogItemId` → `catalog_item_id` *(FK)*
+- `visibility` → `visibility` *(enum: included/optional/hidden)*
+- `basisOverride` → `basis_override` *(enum: Per Booking/Per Person/Per Hour/Half-Day/Day)*
+- `rateOverridesJSON` → `rate_overrides_json` *(JSON)*
+- `minQty` → `min_qty`
+- `maxQty` → `max_qty`
+- `defaultQty` → `default_qty`
+- `autoSuggest` → `auto_suggest`
+
+### VAT.csv → vat
+- `id` → `id`
+- `name` → `name`
+- `ratePercent` → `rate_percent`
+- `appliesToJSON` → `applies_to_json` *(JSON)*
+
+## JSON tips (CSV rules)
+- Wrap the whole JSON value in **double quotes**.  
+- Double any inner quotes.  
+  - Example object: `"{""Per Booking"":90}"`  
+  - Example array: `"[""F&B"",""AV""]"`
+
+## After import — run the SQL in `VALIDATION.md` and paste the counts.
