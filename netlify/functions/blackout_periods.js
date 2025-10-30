@@ -2,11 +2,11 @@
 const { DateTime } = require('luxon');
 const { supabase } = require('./_supabase');
 
-const json = (status, obj) =>
-  new Response(JSON.stringify(obj), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
+const send = (status, obj) => ({
+  statusCode: status,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(obj),
+});
 
 exports.handler = async (event) => {
   try {
@@ -15,7 +15,7 @@ exports.handler = async (event) => {
     // ---- GET blackout list for Admin UI ----
     if (method === 'GET') {
       const roomId = event.queryStringParameters?.roomId || null;
-      if (!roomId) return json(400, { error: 'roomId required' });
+      if (!roomId) return send(400, { error: 'roomId required' });
 
       const { data, error } = await supabase
         .from('blackout_periods')
@@ -23,7 +23,7 @@ exports.handler = async (event) => {
         .eq('room_id', roomId)
         .order('starts_at', { ascending: true });
 
-      if (error) return json(500, { error: error.message });
+      if (error) return send(500, { error: error.message });
 
       const out = data.map((r) => ({
         id: r.id,
@@ -35,7 +35,7 @@ exports.handler = async (event) => {
         endsAtEU: DateTime.fromISO(r.ends_at, { zone: 'Europe/Dublin' }).toFormat('dd/MM/yyyy HH:mm'),
       }));
 
-      return json(200, out);
+      return send(200, out);
     }
 
     // ---- POST new blackout ----
@@ -43,8 +43,8 @@ exports.handler = async (event) => {
       const body = JSON.parse(event.body || '{}');
       const { roomId, startsAt, endsAt, title } = body;
       if (!roomId || !startsAt || !endsAt) {
-        return json(400, { error: 'roomId, startsAt, endsAt required' });
-      }
+        return send(400, { error: 'roomId, startsAt, endsAt required' });
+        }
 
       const { data, error } = await supabase
         .from('blackout_periods')
@@ -52,9 +52,9 @@ exports.handler = async (event) => {
         .select()
         .single();
 
-      if (error) return json(500, { error: error.message });
+      if (error) return send(500, { error: error.message });
 
-      return json(200, {
+      return send(200, {
         id: data.id,
         roomId: data.room_id,
         title: data.title,
@@ -69,16 +69,16 @@ exports.handler = async (event) => {
     if (method === 'DELETE') {
       const body = JSON.parse(event.body || '{}');
       const { id } = body;
-      if (!id) return json(400, { error: 'id required' });
+      if (!id) return send(400, { error: 'id required' });
 
       const { error } = await supabase.from('blackout_periods').delete().eq('id', id);
-      if (error) return json(500, { error: error.message });
+      if (error) return send(500, { error: error.message });
 
-      return json(200, { success: true });
+      return send(200, { success: true });
     }
 
-    return json(405, { error: 'Method not allowed' });
+    return send(405, { error: 'Method not allowed' });
   } catch (err) {
-    return json(500, { error: err.message });
+    return send(500, { error: err.message });
   }
 };
