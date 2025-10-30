@@ -3,7 +3,7 @@
   "private": true,
   "dependencies": {
     "luxon": "^3.4.4",
-    "@supabase/supabase-js": "^2.45.4"
+    "@supabase/supabase-js": "^1.35.7"
   }
 }
 
