@@ -2,7 +2,8 @@
   "name": "availability-spoke",
   "private": true,
   "dependencies": {
-    "luxon": "^3.4.4"
+    "luxon": "^3.4.4",
+    "@supabase/supabase-js": "^2.45.4"
   }
 }
 

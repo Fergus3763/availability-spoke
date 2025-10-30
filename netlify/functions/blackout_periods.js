@@ -1,73 +1,84 @@
-// /netlify/functions/blackout_periods.js (CommonJS)
+// Persist blackout periods in Supabase (CJS, Netlify Functions)
 const { DateTime } = require('luxon');
+const { supabase } = require('./_supabase');
 
-// In-memory store (resets when function cold-starts/redeploys)
-let store = [];
-
-// EU formatter
-function eu(iso, zone = 'Europe/Dublin') {
-  const dt = typeof iso === 'string'
-    ? DateTime.fromISO(iso, { zone })
-    : iso.setZone(zone);
-  return dt.toFormat('dd/MM/yyyy HH:mm');
-}
-
-// JSON helper
-function json(status, body) {
-  return {
-    statusCode: status,
-    headers: { 'content-type': 'application/json' },
-    body: body == null ? '' : JSON.stringify(body),
-  };
-}
+const json = (status, obj) =>
+  new Response(JSON.stringify(obj), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
 
 exports.handler = async (event) => {
   try {
     const method = event.httpMethod;
 
-    if (method === 'POST') {
-      const body = JSON.parse(event.body || '{}');
+    // ---- GET blackout list for Admin UI ----
+    if (method === 'GET') {
+      const roomId = event.queryStringParameters?.roomId || null;
+      if (!roomId) return json(400, { error: 'roomId required' });
 
-      const roomId   = body.roomId || 'Room-A';
-      const title    = body.title || 'Blackout';
+      const { data, error } = await supabase
+        .from('blackout_periods')
+        .select('id, room_id, starts_at, ends_at, title, created_at')
+        .eq('room_id', roomId)
+        .order('starts_at', { ascending: true });
 
-      // fixed blackout
-      let startsAt = body.startsAt || DateTime.now().toISO();
-      let endsAt   = body.endsAt   || DateTime.now().plus({ hours: 1 }).toISO();
+      if (error) return json(500, { error: error.message });
 
-      // temp blackout (e.g. { tempAmount: 6, tempUnit: "hours", startsAt? } )
-      if (!body.startsAt && !body.endsAt && body.tempAmount && body.tempUnit) {
-        const base = body.startsAt
-          ? DateTime.fromISO(body.startsAt)
-          : DateTime.now();
-        startsAt = base.toISO();
-        endsAt   = base.plus({ [body.tempUnit]: Number(body.tempAmount) }).toISO();
-      }
+      const out = data.map((r) => ({
+        id: r.id,
+        roomId: r.room_id,
+        title: r.title || 'Blackout',
+        startsAt: r.starts_at,
+        endsAt: r.ends_at,
+        startsAtEU: DateTime.fromISO(r.starts_at, { zone: 'Europe/Dublin' }).toFormat('dd/MM/yyyy HH:mm'),
+        endsAtEU: DateTime.fromISO(r.ends_at, { zone: 'Europe/Dublin' }).toFormat('dd/MM/yyyy HH:mm'),
+      }));
 
-      const id = 'blk_' + Math.random().toString(36).slice(2, 10);
-
-      const rec = {
-        id, roomId, title,
-        startsAt, endsAt,
-        startsAtEU: eu(startsAt),
-        endsAtEU: eu(endsAt),
-      };
-
-      store.push(rec);
-      return json(201, rec);
+      return json(200, out);
     }
 
+    // ---- POST new blackout ----
+    if (method === 'POST') {
+      const body = JSON.parse(event.body || '{}');
+      const { roomId, startsAt, endsAt, title } = body;
+      if (!roomId || !startsAt || !endsAt) {
+        return json(400, { error: 'roomId, startsAt, endsAt required' });
+      }
+
+      const { data, error } = await supabase
+        .from('blackout_periods')
+        .insert([{ room_id: roomId, starts_at: startsAt, ends_at: endsAt, title }])
+        .select()
+        .single();
+
+      if (error) return json(500, { error: error.message });
+
+      return json(200, {
+        id: data.id,
+        roomId: data.room_id,
+        title: data.title,
+        startsAt: data.starts_at,
+        endsAt: data.ends_at,
+        startsAtEU: DateTime.fromISO(data.starts_at, { zone: 'Europe/Dublin' }).toFormat('dd/MM/yyyy HH:mm'),
+        endsAtEU: DateTime.fromISO(data.ends_at, { zone: 'Europe/Dublin' }).toFormat('dd/MM/yyyy HH:mm'),
+      });
+    }
+
+    // ---- DELETE blackout ----
     if (method === 'DELETE') {
-      // Expect last segment to be the id: /blackout_periods/:id
-      const id = (event.path || '').split('/').pop();
-      const before = store.length;
-      store = store.filter(x => x.id !== id);
-      const removed = before - store.length;
-      return json(200, { ok: true, removed, id });
+      const body = JSON.parse(event.body || '{}');
+      const { id } = body;
+      if (!id) return json(400, { error: 'id required' });
+
+      const { error } = await supabase.from('blackout_periods').delete().eq('id', id);
+      if (error) return json(500, { error: error.message });
+
+      return json(200, { success: true });
     }
 
     return json(405, { error: 'Method not allowed' });
   } catch (err) {
-    return json(500, { error: 'Server error', detail: String(err && err.message || err) });
+    return json(500, { error: err.message });
   }
 };

@@ -1,66 +1,61 @@
-// /netlify/functions/availability.js  (CommonJS)
-const { DateTime } = require('luxon');
+// Check room availability against blackout periods (CJS, Netlify Functions)
+const { DateTime, Interval } = require('luxon');
+const { supabase } = require('./_supabase');
 
-// Server-safe EU formatter (no browser globals)
-function eu(iso, zone = 'Europe/Dublin') {
-  const dt = typeof iso === 'string'
-    ? DateTime.fromISO(iso, { zone })
-    : iso.setZone(zone);
-  return dt.toFormat('dd/MM/yyyy HH:mm');
-}
-
-// Small JSON helper
-function json(status, body) {
-  return {
-    statusCode: status,
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  };
-}
+const json = (status, obj) =>
+  new Response(JSON.stringify(obj), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
 
 exports.handler = async (event) => {
   try {
-    // Params from query string
-    const url = new URL(event.rawUrl || `https://${event.headers.host}${event.path}${event.rawQuery ? '?' + event.rawQuery : ''}`);
-    const params = url.searchParams;
-
-    const roomId = params.get('roomId') || 'Room-A';
-    const fromISO = params.get('from');
-    const toISO   = params.get('to');
-
-    if (!fromISO || !toISO) {
-      return json(400, { error: "Missing required query params 'from' and 'to' (ISO timestamps)." });
+    if (event.httpMethod !== 'GET') {
+      return json(405, { error: 'Method not allowed' });
     }
 
-    const fromDt = DateTime.fromISO(fromISO);
-    const toDt   = DateTime.fromISO(toISO);
-
-    if (!fromDt.isValid || !toDt.isValid) {
-      return json(400, { error: 'Invalid ISO timestamps.' });
+    const { roomId, from, to } = event.queryStringParameters || {};
+    if (!roomId || !from || !to) {
+      return json(400, { error: 'roomId, from, and to required' });
     }
 
-    // ---- your availability logic goes here ----
-    // For now: simple “available” demo + billable hours (rounded up)
-    const diffHours = Math.max(0, toDt.diff(fromDt, 'hours').hours);
-    const billableHours = Math.max(1, Math.ceil(diffHours));
-    const available = true;        // <— placeholder
-    const ooh = false;             // <— placeholder
-    const blackoutReason = null;   // <— placeholder
+    // Look up blackouts for this room
+    const { data, error } = await supabase
+      .from('blackout_periods')
+      .select('id, starts_at, ends_at, title')
+      .eq('room_id', roomId);
 
-    const result = {
+    if (error) return json(500, { error: error.message });
+
+    const fromDT = DateTime.fromISO(from);
+    const toDT = DateTime.fromISO(to);
+    const queryRange = Interval.fromDateTimes(fromDT, toDT);
+
+    // Any overlap?
+    const overlap = data?.find((r) => {
+      const period = Interval.fromDateTimes(
+        DateTime.fromISO(r.starts_at),
+        DateTime.fromISO(r.ends_at)
+      );
+      return period.overlaps(queryRange);
+    });
+
+    const available = !overlap;
+    const blackoutReason = overlap ? overlap.title || 'Blackout' : null;
+
+    return json(200, {
       roomId,
       available,
       blackoutReason,
-      from: fromISO,
-      to: toISO,
-      fromEU: eu(fromDt),
-      toEU: eu(toDt),
-      ooh,
-      billableHours,
-    };
-
-    return json(200, result);
+      from,
+      to,
+      fromEU: fromDT.setZone('Europe/Dublin').toFormat('dd/MM/yyyy HH:mm'),
+      toEU: toDT.setZone('Europe/Dublin').toFormat('dd/MM/yyyy HH:mm'),
+      ooh: false,
+      billableHours: Math.max(0, toDT.diff(fromDT, 'hours').hours),
+    });
   } catch (err) {
-    return json(500, { error: 'Server error', detail: String(err && err.message || err) });
+    console.error(err);
+    return json(500, { error: err.message });
   }
 };
