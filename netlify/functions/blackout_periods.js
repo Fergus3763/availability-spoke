@@ -1,30 +1,56 @@
-// netlify/functions/blackout_periods.js
+// /netlify/functions/blackout_periods.js
+// Persist blackout periods in Supabase (CJS, Netlify Functions)
+// Adds verbose logging for diagnostics
+
 const { DateTime } = require('luxon');
 const { supabase } = require('./_supabase');
 
-// Standard Lambda response
-const json = (status, obj) => ({
-  statusCode: status,
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(obj),
-});
+const json = (status, obj) =>
+  new Response(JSON.stringify(obj), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
 
 exports.handler = async (event) => {
-  try {
-    const method = event.httpMethod;
+  const reqId = event.requestId || 'no-req-id';
+  const method = event.httpMethod;
 
-    // ------- GET: list blackouts for Admin UI -------
+  // Minimal CORS helper to make manual tests easier
+  if (method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+        'Access-Control-Allow-Headers': 'content-type',
+      },
+    });
+  }
+
+  console.log(`[blackout_periods] reqId=${reqId} method=${method}`);
+
+  try {
     if (method === 'GET') {
-      const roomId = event.queryStringParameters?.roomId;
-      if (!roomId) return json(400, { error: 'roomId required' });
+      const params = event.queryStringParameters || {};
+      const roomId = params.roomId || null;
+
+      if (!roomId) {
+        console.warn(`[blackout_periods] GET missing roomId`);
+        return json(400, { error: 'roomId required' });
+      }
+
+      console.log(`[blackout_periods] GET roomId=${roomId}`);
 
       const { data, error } = await supabase
         .from('blackout_periods')
-        .select('id, room_id, starts_at, ends_at, title')
+        .select('id, room_id, starts_at, ends_at, title, created_at')
         .eq('room_id', roomId)
         .order('starts_at', { ascending: true });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[blackout_periods] GET supabase error:', error);
+        return json(500, { error: error.message, code: error.code, details: error.details });
+      }
 
       const out = (data || []).map((r) => ({
         id: r.id,
@@ -36,48 +62,53 @@ exports.handler = async (event) => {
         endsAtEU: DateTime.fromISO(r.ends_at, { zone: 'Europe/Dublin' }).toFormat('dd/LL/yyyy HH:mm'),
       }));
 
+      console.log(`[blackout_periods] GET rows=${out.length}`);
       return json(200, out);
     }
 
-    // ------- POST: create blackout -------
     if (method === 'POST') {
-      const body = JSON.parse(event.body || '{}');
-      const { roomId, startsAt, endsAt, title } = body;
-
-      if (!roomId || !startsAt || !endsAt) {
-        return json(400, { error: 'roomId, startsAt, endsAt required' });
+      let body = {};
+      try {
+        body = JSON.parse(event.body || '{}');
+      } catch (e) {
+        console.error('[blackout_periods] POST invalid JSON body:', e);
+        return json(400, { error: 'Invalid JSON body' });
       }
 
-      const payload = {
+      const { roomId, startsAt, endsAt, title = 'Blackout' } = body;
+      console.log('[blackout_periods] POST payload:', body);
+
+      if (!roomId || !startsAt || !endsAt) {
+        console.warn('[blackout_periods] POST missing fields', { roomId, startsAt, endsAt });
+        return json(400, { error: 'roomId, startsAt and endsAt are required' });
+      }
+
+      const row = {
         room_id: roomId,
         starts_at: startsAt,
         ends_at: endsAt,
-        title: title || null,
+        title: title,
       };
 
       const { data, error } = await supabase
         .from('blackout_periods')
-        .insert(payload)
+        .insert([row])
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('[blackout_periods] POST supabase insert error:', error);
+        return json(500, { error: error.message, code: error.code, details: error.details });
+      }
 
-      const out = {
-        id: data.id,
-        roomId: data.room_id,
-        title: data.title || 'Blackout',
-        startsAt: data.starts_at,
-        endsAt: data.ends_at,
-        startsAtEU: DateTime.fromISO(data.starts_at, { zone: 'Europe/Dublin' }).toFormat('dd/LL/yyyy HH:mm'),
-        endsAtEU: DateTime.fromISO(data.ends_at, { zone: 'Europe/Dublin' }).toFormat('dd/LL/yyyy HH:mm'),
-      };
-
-      return json(200, out);
+      console.log('[blackout_periods] POST inserted row:', data);
+      return json(200, data);
     }
 
+    console.warn(`[blackout_periods] method not allowed: ${method}`);
     return json(405, { error: 'Method not allowed' });
-  } catch (err) {
-    return json(500, { error: String(err.message || err) });
+  } catch (e) {
+    console.error('[blackout_periods] unhandled exception:', e);
+    return json(500, { error: 'Unhandled error', message: e?.message, stack: e?.stack });
   }
 };
